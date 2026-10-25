@@ -100,6 +100,9 @@ test("extension injects terminal images without changing source messages", async
     assert.equal(kittyImageCount(transformed.render(80)), 1);
     assert.equal(transforms, 1);
     assert.equal((transformed as unknown as { text: string }).text, "FORMULA");
+    // Repaints without invalidate() must reuse the native transform, as Pi's own cache does.
+    assert.equal(kittyImageCount(transformed.render(80)), 1);
+    assert.equal(transforms, 1);
     transformed.invalidate();
     assert.equal(kittyImageCount(transformed.render(80)), 1);
     assert.equal(transforms, 2);

@@ -22,6 +22,7 @@ type MarkdownInternals = {
   paddingX?: number;
   defaultTextStyle?: DefaultTextStyle;
   options?: MarkdownOptions;
+  cachedLines?: string[];
 };
 
 type MarkdownRender = (this: Markdown, width: number) => string[];
@@ -207,6 +208,15 @@ export function installMarkdownMathPatch(renderer: TerminalMathRenderer): MathPa
   // text-only stage before rasterization, once, then insert images after layout.
   // It cannot replace this hook: it has no access to final terminal rows.
   const rendering = new WeakSet<Markdown>();
+  // Pi's own render() returns cachedLines before calling transform(); without this
+  // memo the wrapper re-ran transform() for every message on every frame.
+  // The memo is tied to Pi's cachedLines so invalidate() still forces a fresh transform.
+  const nativeTransforms = new WeakMap<Markdown, {
+    source: string;
+    width: number;
+    text: string;
+    lines: string[] | undefined;
+  }>();
   const delegates = new WeakMap<MarkdownRender, MarkdownRender>();
   const wrap = (delegate: MarkdownRender): MarkdownRender => {
     const wrapped: MarkdownRender = function (width) {
@@ -221,8 +231,16 @@ export function installMarkdownMathPatch(renderer: TerminalMathRenderer): MathPa
         if (enabled && getCapabilities().images &&
             markdown.defaultTextStyle?.italic !== true && options?.transform) {
           const contentWidth = Math.max(1, width - (markdown.paddingX ?? 0) * 2);
-          markdown.text = options.transform(source, contentWidth);
+          const memo = nativeTransforms.get(this);
+          const memoValid = memo !== undefined && memo.source === source &&
+            memo.width === contentWidth && memo.lines !== undefined &&
+            memo.lines === markdown.cachedLines;
+          const text = memoValid ? memo.text : options.transform(source, contentWidth);
+          markdown.text = text;
           markdown.options = { ...options, transform: undefined };
+          const lines = renderMath.call(this, width, delegate);
+          nativeTransforms.set(this, { source, width: contentWidth, text, lines: markdown.cachedLines });
+          return lines;
         }
         return renderMath.call(this, width, delegate);
       } finally {
